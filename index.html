@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>黄金平台位置</title>
+<style>
+/* 和简易MT5中间栏同样的深色风格；只有两张图：15 分钟、5 分钟 */
+:root{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:#0d0f13;color:#d8dce2;font:15px/1.5 "PingFang SC","Microsoft YaHei",sans-serif}
+header{padding:14px 14px 6px}
+h1{margin:0;font-size:20px;color:#f5c451}
+.sub{color:#8a919c;font-size:13px;margin-top:2px}
+.price{font-size:26px;font-weight:800;color:#fff;margin-top:6px}
+.price small{font-size:13px;color:#8a919c;font-weight:400;margin-left:6px}
+main{display:flex;flex-direction:column;gap:12px;padding:8px 12px 20px;max-width:900px;margin:0 auto}
+.mbox{border:1px solid #2a303b;border-radius:10px;background:#11141a;display:flex;flex-direction:column}
+.mh{padding:10px 14px;border-bottom:1px solid #222731;font-weight:700;font-size:17px}
+.mh span{color:#8a919c;font-weight:400;font-size:14px;margin-left:6px}
+.mbox canvas{width:100%;height:300px;display:block}
+.note{color:#7d8592;font-size:12px;padding:0 14px 16px;max-width:900px;margin:0 auto;line-height:1.6}
+.err{color:#ff8a80}
+button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6px;padding:8px 14px;font-size:15px;margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>黄金平台位置</h1>
+  <div class="sub" id="st">读取中…</div>
+  <div class="price" id="px">—</div>
+  <button id="rf">立即刷新</button>
+</header>
+<main>
+  <div class="mbox"><div class="mh">平台位置 <span>15分钟</span></div><canvas id="c15"></canvas></div>
+  <div class="mbox"><div class="mh">平台位置 <span>5分钟</span></div><canvas id="c5"></canvas></div>
+</main>
+<div class="note">
+  数据：Kraken 交易所的 PAXG/USD（跟着黄金价格走的代币），读不到时改用 Coinbase。不经过 MT5，电脑关机也能看。<br>
+  PAXG 价格一般比券商的 XAUUSDs. 低 10 美元左右，平台框位置会整体偏低一点；周末黄金停盘，PAXG 照样有价格。<br>
+  折线和平台规则跟简易MT5一样（左边 15 根定顶底、合并小折、成熟度两条、框不超过 A 点），每 30 秒自动刷新。仅供看图，不是交易建议。
+</div>
+<script>
+{
+const $ = id => document.getElementById(id);
+const digits = 2;
+const ZL_N = 15, ZL_MERGE = 1 / 3;
+function zlLeg(b, N) {
+  const n = b.length;
+  if (!n) return null;
+  let up = true, T = {i: 0, v: b[0].high}, B = {i: 0, v: b[0].low}, pend = -1;
+  const pts = [];
+  for (let k = 1; k < n; k++) {
+    let hi = -Infinity, lo = Infinity;
+    for (let j = Math.max(0, k - N); j < k; j++) { if (b[j].high > hi) hi = b[j].high; if (b[j].low < lo) lo = b[j].low; }
+    let newHi = b[k].high > hi, newLo = b[k].low < lo;
+    if (pend >= 0) {
+      const u = b[k].high > b[pend].high, d = b[k].low < b[pend].low;
+      if (u && d) { pend = k; continue; }
+      if (!u && !d) continue;
+      newHi = u; newLo = d; pend = -1;
+    } else if (newHi && newLo) { pend = k; continue; }
+    if (up) {
+      if (b[k].high > T.v) T = {i: k, v: b[k].high};
+      if (newLo) { pts.push({t: 'H', i: T.i, v: T.v}); up = false; B = {i: k, v: b[k].low}; }
+    } else {
+      if (b[k].low < B.v) B = {i: k, v: b[k].low};
+      if (newHi) { pts.push({t: 'L', i: B.i, v: B.v}); up = true; T = {i: k, v: b[k].high}; }
+    }
+  }
+  return {pts, cur: up ? Object.assign({t: 'H'}, T) : Object.assign({t: 'L'}, B)};
+}
+function zlMerge(pts, k) {
+  pts = pts.slice();
+  for (;;) {
+    let best = -1, br = k;
+    for (let i = 0; i + 3 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1], c = pts[i + 2], d = pts[i + 3];
+      const cont = a.t === 'H' ? (c.v < a.v && d.v < b.v) : (c.v > a.v && d.v > b.v);
+      if (!cont) continue;
+      const r = Math.abs(c.v - b.v) / Math.abs(a.v - d.v);
+      if (r < br) { br = r; best = i; }
+    }
+    if (best < 0) return pts;
+    pts.splice(best + 1, 2);
+  }
+}
+function zlPlatforms(P) {
+  // 2026-11-13 定：平台只在两种情况结束 ① 横线分不开高低点 ② 新平台诞生（新平台的 A 点只属于新平台，旧平台在 A 前面结束）
+  //（原来还有「破框距离超过框高就结束」，用户看图后拿掉了）
+  const born = k => (P[k].t === 'H' && P[k].v < P[k - 3].v) || (P[k].t === 'L' && P[k].v > P[k - 3].v);
+  const out = []; let k = 3; const n = P.length;
+  while (k < n) {
+    if (!born(k)) { k++; continue; }
+    const mem = [P[k - 1], P[k]]; let j = k + 1;
+    for (; j < n; j++) {
+      const x = P[j];
+      if (born(j)) { if (mem.length > 2 && mem[mem.length - 1] === P[j - 1]) mem.pop(); break; }
+      const t = mem.concat([x]), hs = t.filter(m => m.t === 'H').map(m => m.v), ls = t.filter(m => m.t === 'L').map(m => m.v);
+      if (!(Math.min(...hs) > Math.max(...ls))) break;
+      mem.push(x);
+    }
+    out.push({mem, open: j >= n}); k = j;
+  }
+  return out;
+}
+function zlPlatCross(mem) {   // 一条横线最多能同时穿过这个平台里几段折线
+  let best = 0;
+  const ys = [...new Set(mem.map(m => m.v))];
+  for (const y of ys) for (const yy of [y - 1e-9, y + 1e-9]) {
+    let c = 0; for (let k = 1; k < mem.length; k++) { const a = mem[k - 1].v, b = mem[k].v; if (Math.min(a, b) < yy && yy < Math.max(a, b)) c++; }
+    if (c > best) best = c;
+  }
+  return best;
+}
+function zlPlatBoxes(P, lastI) {
+  const bx = zlPlatforms(P).map(g => {
+    const v = g.mem.map(x => x.v), a = g.mem[0];
+    // 2026-11-14 用户定：框在 A 那一边不能超过 A（A 是低点 → 框底停在 A；A 是高点 → 框顶停在 A）。
+    // 越过 A 的点还算这个平台的，只是画在框外面；B 那一边照旧可以被撑大。
+    const top = a.t === 'H' ? a.v : Math.max(...v), bot = a.t === 'L' ? a.v : Math.min(...v);
+    return {i0: g.mem[0].i, i1: g.open ? lastI : g.mem[g.mem.length - 1].i, top, bot, open: g.open, kind: 'old', cr: zlPlatCross(g.mem)};
+  });
+  let act = -1;
+  bx.forEach((g, k) => {
+    if (g.cr < 3) { g.kind = 'imm'; return; }
+    if (act >= 0) {
+      const a = bx[act], ov = Math.min(g.top, a.top) - Math.max(g.bot, a.bot);
+      if (ov > (g.top - g.bot) / 2) { g.kind = 'imm'; return; }
+    }
+    act = k;
+  });
+  if (act >= 0) { bx[act].kind = 'act'; if (act < bx.length - 1) bx[act].i1 = lastI; }
+  return bx;
+}
+function zlPoints(b) {
+  const r = zlLeg(b, ZL_N);
+  if (!r) return [];
+  const pts = zlMerge(r.pts, ZL_MERGE);
+  if (!pts.length || r.cur.i > pts[pts.length - 1].i) pts.push(Object.assign({cur: true}, r.cur));
+  return pts;
+}
+function lastPlat(b) {
+  if (!b || b.length < 20) return null;
+  const P = zlPoints(b), bx = zlPlatBoxes(P, b.length - 1), g = bx.find(x => x.kind === 'act');
+  if (!g) return {P, g: null};
+  return {P, g: {t0: b[g.i0].time, t1: b[g.i1].time, i0: g.i0, top: g.top, bot: g.bot, open: g.i1 === b.length - 1}};
+}
+function cvPrep(id) {
+  const cv = $(id), W = cv.clientWidth, H = cv.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  ctx.font = '12px "PingFang SC","Microsoft YaHei", sans-serif'; ctx.textBaseline = 'middle';
+  return {ctx, W, H};
+}
+function cvMsg(ctx, W, H, s) { ctx.fillStyle = '#7d8592'; ctx.textAlign = 'center'; ctx.fillText(s, W / 2, H / 2); }
+// 和简易MT5 drawPMapOne（只画大周期自己）一样的画法
+function drawMap(id, bars, name) {
+  const {ctx, W, H} = cvPrep(id);
+  if (!bars || bars.length < 20) return cvMsg(ctx, W, H, '读取中…');
+  const r5 = lastPlat(bars);
+  if (!r5 || !r5.g) return cvMsg(ctx, W, H, name + '暂时没有平台');
+  const g5 = r5.g, price = bars[bars.length - 1].close, tNow = bars[bars.length - 1].time;
+  let lo = Math.min(g5.bot, price), hi = Math.max(g5.top, price);
+  for (const p of r5.P) if (bars[p.i].time >= g5.t0) { lo = Math.min(lo, p.v); hi = Math.max(hi, p.v); }
+  const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const L = 8, R = W - 62, T = 10, B = H - 10;
+  const X = t => L + Math.max(0, Math.min(1, (t - g5.t0) / Math.max(1, tNow - g5.t0))) * (R - L);
+  const Y = v => T + (hi - v) / (hi - lo) * (B - T);
+  const f = v => v.toFixed(digits);
+  ctx.strokeStyle = '#64b5f6'; ctx.lineWidth = 2; ctx.strokeRect(X(g5.t0), Y(g5.top), X(g5.open ? tNow : g5.t1) - X(g5.t0), Y(g5.bot) - Y(g5.top));
+  ctx.fillStyle = '#64b5f6'; ctx.textAlign = 'left';
+  ctx.fillText(f(g5.top), R + 4, Y(g5.top)); ctx.fillText(f(g5.bot), R + 4, Y(g5.bot));
+  const p5 = r5.P.filter(p => bars[p.i].time >= g5.t0);
+  ctx.strokeStyle = '#ffd54f'; ctx.lineWidth = 1.6; ctx.beginPath();
+  p5.forEach((p, k) => { const x = X(bars[p.i].time), y = Y(p.v); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.stroke();
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = '#ef9a9a'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(L, Y(price)); ctx.lineTo(R, Y(price)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = '#ef9a9a'; ctx.fillText(f(price), R + 4, Y(price));
+}
+// ---------- 取数据 ----------
+async function kraken(min) {
+  const d = await (await fetch('https://api.kraken.com/0/public/OHLC?pair=PAXGUSD&interval=' + min)).json();
+  if (d.error && d.error.length) throw new Error(d.error.join(','));
+  const k = Object.keys(d.result).find(x => x !== 'last');
+  return d.result[k].map(r => ({time: r[0], open: +r[1], high: +r[2], low: +r[3], close: +r[4]}));
+}
+async function coinbase(min) {
+  const sec = min * 60, out = new Map(); let end = Math.floor(Date.now() / 1000);
+  for (let n = 0; n < 4; n++) {   // 每次 300 根，往前翻 4 次
+    const start = end - sec * 300;
+    const u = 'https://api.exchange.coinbase.com/products/PAXG-USD/candles?granularity=' + sec + '&start=' + new Date(start * 1000).toISOString() + '&end=' + new Date(end * 1000).toISOString();
+    const a = await (await fetch(u)).json();
+    if (!Array.isArray(a)) throw new Error('coinbase');
+    a.forEach(r => out.set(r[0], {time: r[0], low: r[1], high: r[2], open: r[3], close: r[4]}));
+    end = start;
+  }
+  return [...out.values()].sort((x, y) => x.time - y.time);
+}
+async function get(min) {
+  try { return {bars: await kraken(min), src: 'Kraken'}; }
+  catch (e) { return {bars: await coinbase(min), src: 'Coinbase'}; }
+}
+const D = {m15: null, m5: null};
+let busy = false;
+async function load() {
+  if (busy) return; busy = true;
+  try {
+    const [a, b] = await Promise.all([get(15), get(5)]);
+    D.m15 = a.bars; D.m5 = b.bars;
+    const p = b.bars[b.bars.length - 1].close;
+    $('px').innerHTML = p.toFixed(2) + '<small>PAXG/USD</small>';
+    $('st').textContent = '来源 ' + b.src + ' · 更新于 ' + new Date().toLocaleTimeString('zh-CN', {hour12: false});
+    draw();
+  } catch (e) {
+    $('st').innerHTML = '<span class="err">读取失败，30 秒后自动重试（' + (e.message || e) + '）</span>';
+  } finally { busy = false; }
+}
+function draw() { drawMap('c15', D.m15, '15分钟'); drawMap('c5', D.m5, '5分钟'); }
+$('rf').onclick = load;
+window.addEventListener('resize', draw);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+load();
+setInterval(load, 30000);
+}
+</script>
+</body>
+</html>
