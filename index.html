@@ -36,7 +36,7 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
   <div class="mbox"><div class="mh">平台位置 <span>5分钟</span></div><canvas id="c5"></canvas></div>
 </main>
 <div class="note">
-  数据：Kraken 交易所的 PAXG/USD（跟着黄金价格走的代币），读不到时改用 Coinbase。不经过 MT5，电脑关机也能看。<br>
+  数据：Coinbase 交易所的 PAXG/USD（跟着黄金价格走的代币），每个周期约 2000 根，跟简易MT5一样；读不到时改用 Kraken（只有 720 根）。不经过 MT5，电脑关机也能看。<br>
   PAXG 价格一般比券商的 XAUUSDs. 低 10 美元左右，平台框位置会整体偏低一点；周末黄金停盘，PAXG 照样有价格。<br>
   折线和平台规则跟简易MT5一样（左边 15 根定顶底、合并小折、成熟度两条、框不超过 A 点），每 30 秒自动刷新。仅供看图，不是交易建议。
 </div>
@@ -185,9 +185,9 @@ async function kraken(min) {
   const k = Object.keys(d.result).find(x => x !== 'last');
   return d.result[k].map(r => ({time: r[0], open: +r[1], high: +r[2], low: +r[3], close: +r[4]}));
 }
-async function coinbase(min) {
+async function coinbase(min, pages) {
   const sec = min * 60, out = new Map(); let end = Math.floor(Date.now() / 1000);
-  for (let n = 0; n < 4; n++) {   // 每次 300 根，往前翻 4 次
+  for (let n = 0; n < pages; n++) {   // 每次 300 根，往前翻 pages 次
     const start = end - sec * 300;
     const u = 'https://api.exchange.coinbase.com/products/PAXG-USD/candles?granularity=' + sec + '&start=' + new Date(start * 1000).toISOString() + '&end=' + new Date(end * 1000).toISOString();
     const a = await (await fetch(u)).json();
@@ -197,9 +197,18 @@ async function coinbase(min) {
   }
   return [...out.values()].sort((x, y) => x.time - y.time);
 }
+// 和简易MT5一样用约 2000 根：第一次（和每 10 分钟）从 Coinbase 读 7×300 根，之后每 30 秒只补最新 300 根；Coinbase 读不到就用 Kraken（只有 720 根）
+const C = {};
 async function get(min) {
-  try { return {bars: await kraken(min), src: 'Kraken'}; }
-  catch (e) { return {bars: await coinbase(min), src: 'Coinbase'}; }
+  const c = C[min] || (C[min] = {bars: [], t: 0, src: ''});
+  try {
+    const full = !c.bars.length || c.src !== 'Coinbase' || Date.now() - c.t > 600000;
+    const nb = await coinbase(min, full ? 7 : 1);
+    if (full) { c.bars = nb; c.t = Date.now(); }
+    else { const m = new Map(c.bars.map(b => [b.time, b])); nb.forEach(b => m.set(b.time, b)); c.bars = [...m.values()].sort((x, y) => x.time - y.time).slice(-2100); }
+    c.src = 'Coinbase';
+  } catch (e) { c.bars = await kraken(min); c.src = 'Kraken'; c.t = 0; }
+  return {bars: c.bars, src: c.src};
 }
 const D = {m15: null, m5: null};
 let busy = false;
