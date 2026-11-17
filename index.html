@@ -44,6 +44,7 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
 {
 const $ = id => document.getElementById(id);
 const digits = 2;
+const HIDE_PLAT_BOX = true;
 const ZL_N = 15, ZL_MERGE = 1 / 3;
 function zlLeg(b, N) {
   const n = b.length;
@@ -168,9 +169,11 @@ function drawMap(id, bars, name) {
   const X = t => L + Math.max(0, Math.min(1, (t - g5.t0) / Math.max(1, tNow - g5.t0))) * (R - L);
   const Y = v => T + (hi - v) / (hi - lo) * (B - T);
   const f = v => v.toFixed(digits);
-  ctx.strokeStyle = '#64b5f6'; ctx.lineWidth = 2; ctx.strokeRect(X(g5.t0), Y(g5.top), X(g5.open ? tNow : g5.t1) - X(g5.t0), Y(g5.bot) - Y(g5.top));
-  ctx.fillStyle = '#64b5f6'; ctx.textAlign = 'left';
-  ctx.fillText(f(g5.top), R + 4, Y(g5.top)); ctx.fillText(f(g5.bot), R + 4, Y(g5.bot));
+  ctx.textAlign = 'left';
+  if (!HIDE_PLAT_BOX) {   // 2026-11-16 用户：平台框不要（只藏，不删；改成 false 就回来），折线和现价照常
+    ctx.strokeStyle = '#64b5f6'; ctx.lineWidth = 2; ctx.strokeRect(X(g5.t0), Y(g5.top), X(g5.open ? tNow : g5.t1) - X(g5.t0), Y(g5.bot) - Y(g5.top));
+    ctx.fillStyle = '#64b5f6'; ctx.fillText(f(g5.top), R + 4, Y(g5.top)); ctx.fillText(f(g5.bot), R + 4, Y(g5.bot));
+  }
   const p5 = r5.P.filter(p => bars[p.i].time >= g5.t0);
   ctx.strokeStyle = '#ffd54f'; ctx.lineWidth = 1.6; ctx.beginPath();
   p5.forEach((p, k) => { const x = X(bars[p.i].time), y = Y(p.v); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
