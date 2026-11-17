@@ -45,7 +45,7 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
 <div class="note">
   数据：Coinbase 交易所的 PAXG/USD（跟着黄金价格走的代币），每个周期约 2000 根，跟简易MT5一样；读不到时改用 Kraken（只有 720 根）。不经过 MT5，电脑关机也能看。<br>
   PAXG 价格一般比券商的 XAUUSDs. 低 10 美元左右，平台框位置会整体偏低一点；周末黄金停盘，PAXG 照样有价格。<br>
-  折线和平台规则跟简易MT5一样（左边 15 根定顶底、合并小折、成熟度两条、框不超过 A 点），每 30 秒自动刷新。庄闲路单：每涨 15 美元记一个庄（红圈），每跌 15 记一个闲（蓝圈），零头不算，反向满 15 才换方向，每天洛杉矶时间 15:00 重新开始。仅供看图，不是交易建议。
+  折线和平台规则跟简易MT5一样（左边 15 根定顶底、合并小折、成熟度两条、框不超过 A 点），每 30 秒自动刷新。庄闲路单：每涨 15 美元记一个庄（红圈），每跌 15 记一个闲（蓝圈），零头不算，反向满 15 才换方向，显示从现在往前 7 天、一直往前滚动。仅供看图，不是交易建议。
 </div>
 <script>
 {
@@ -222,7 +222,9 @@ async function get(min) {
 }
 // ---------- 庄闲路单（2026-11-17 用户定）----------
 // 价格每涨 15 记一个「庄」，每跌 15 记一个「闲」，零头不算；从最高/最低点反向满 15 才算换方向，
-// 反弹不满 15 又继续跌，算同一段、从这段的起点接着累计。从最近一次洛杉矶时间 15:00 开盘开始记，用 1 分钟数据。
+// 反弹不满 15 又继续跌，算同一段、从这段的起点接着累计。用 1 分钟数据。
+// 2026-11-17 14:14 用户改：不每天清空，显示「从现在往前 7 天」一直滚动（原来是从最近一次洛杉矶 15:00 开盘开始，sessionStart 留着没用）。
+const ROAD_DAYS = 7;
 const STEP = 15;
 function laParts(d) {
   const o = {}; new Intl.DateTimeFormat('en-US', {timeZone: 'America/Los_Angeles', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'}).formatToParts(d).forEach(x => o[x.type] = x.value);
@@ -242,7 +244,9 @@ async function cbRange(sec, from, to) {   // Coinbase 一段时间的 K 线，�
   const out = new Map();
   for (let end = to; end > from; end -= sec * 300) {
     const start = Math.max(from, end - sec * 300);
-    const a = await (await fetch('https://api.exchange.coinbase.com/products/PAXG-USD/candles?granularity=' + sec + '&start=' + new Date(start * 1000).toISOString() + '&end=' + new Date(end * 1000).toISOString())).json();
+    const u = 'https://api.exchange.coinbase.com/products/PAXG-USD/candles?granularity=' + sec + '&start=' + new Date(start * 1000).toISOString() + '&end=' + new Date(end * 1000).toISOString();
+    let a = null;
+    for (let k = 0; k < 3 && !Array.isArray(a); k++) { if (k) await new Promise(r => setTimeout(r, 1200)); try { a = await (await fetch(u)).json(); } catch (e) {} }
     if (!Array.isArray(a)) throw new Error('coinbase');
     a.forEach(r => { if (r[0] >= from) out.set(r[0], {time: r[0], low: r[1], high: r[2], open: r[3], close: r[4]}); });
   }
@@ -250,13 +254,14 @@ async function cbRange(sec, from, to) {   // Coinbase 一段时间的 K 线，�
 }
 const RD = {start: 0, bars: []};
 async function loadRoad() {
-  const st = sessionStart(), now = Math.floor(Date.now() / 1000);
-  if (st !== RD.start || !RD.bars.length) { RD.bars = await cbRange(60, st, now); RD.start = st; }
+  const now = Math.floor(Date.now() / 1000), st = now - ROAD_DAYS * 86400;
+  if (!RD.bars.length) { $('rinfo').textContent = '第一次要读 7 天的 1 分钟数据，大约 10 秒…'; RD.bars = await cbRange(60, st, now); }
   else {
     const nb = await cbRange(60, Math.max(st, now - 60 * 300), now);
     const m = new Map(RD.bars.map(b => [b.time, b])); nb.forEach(b => m.set(b.time, b));
-    RD.bars = [...m.values()].sort((x, y) => x.time - y.time);
+    RD.bars = [...m.values()].filter(b => b.time >= st).sort((x, y) => x.time - y.time);
   }
+  RD.start = st;
 }
 function roadSeq(bars) {
   const seq = []; if (!bars.length) return {seq, st: null};
@@ -295,8 +300,8 @@ function drawRoad() {
   for (const c of cells) g += `<circle cx="${c.col * cs + cs / 2}" cy="${c.row * cs + cs / 2}" r="${cs / 2 - 4}" fill="none" stroke="${c.r === '庄' ? '#ef5350' : '#42a5f5'}" stroke-width="2.6"/>`;
   const el = $('road'); el.innerHTML = `<svg width="${cols * cs + 1}" height="${6 * cs + 1}">${g}</svg>`; el.scrollLeft = el.scrollWidth;
   const z = seq.filter(x => x === '庄').length, x = seq.length - z;
-  const t0 = new Date(RD.start * 1000), f = v => v.toFixed(2);
-  $('rsub').textContent = '每 15 美元一格 · 从 ' + (t0.getMonth() + 1) + '/' + t0.getDate() + ' 15:00 开始';
+  const t0 = new Date((RD.bars.length ? RD.bars[0].time : RD.start) * 1000), f = v => v.toFixed(2);
+  $('rsub').textContent = '每 15 美元一格 · 最近 7 天（从 ' + (t0.getMonth() + 1) + '/' + t0.getDate() + ' ' + String(t0.getHours()).padStart(2, '0') + ':' + String(t0.getMinutes()).padStart(2, '0') + ' 起）';
   let now = '';
   if (!st) now = '还没有数据';
   else if (st.dir === 0) now = '还没走满 15：涨到 <b class="z">' + f(st.lo + STEP) + '</b> 记庄，跌到 <b class="x">' + f(st.hi - STEP) + '</b> 记闲';
