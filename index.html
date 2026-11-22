@@ -26,17 +26,21 @@ main{display:flex;flex-direction:column;gap:12px;padding:8px 12px 20px;max-width
 .note{color:#7d8592;font-size:12px;padding:0 14px 16px;max-width:900px;margin:0 auto;line-height:1.6}
 .err{color:#ff8a80}
 button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6px;padding:8px 14px;font-size:15px;margin-top:8px}
+.tabs{display:flex;gap:8px;margin-bottom:8px}
+.tabs button{margin:0;padding:6px 16px;border-radius:16px}
+.tabs button.on{background:#f5c451;color:#111;border-color:#f5c451;font-weight:700}
 </style>
 </head>
 <body>
 <header>
-  <h1>黄金平台位置</h1>
+  <div class="tabs"><button id="tb-gold">黄金</button><button id="tb-btc">比特币</button></div>
+  <h1 id="ttl">黄金平台位置</h1>
   <div class="sub" id="st">读取中…</div>
   <div class="price" id="px">—</div>
   <button id="rf">立即刷新</button>
 </header>
 <main>
-  <div class="mbox"><div class="mh">庄闲路单 <span id="rsub">每 15 美元一格</span></div>
+  <div class="mbox"><div class="mh">庄闲路单 <span id="rsub">读取中</span></div>
     <div class="road" id="road"></div>
     <div class="rinfo" id="rinfo">读取中…</div></div>
   <div class="mbox"><div class="mh">平台位置 <span>15分钟</span></div><canvas id="c15"></canvas></div>
@@ -45,12 +49,21 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
 <div class="note">
   数据：Coinbase 交易所的 PAXG/USD（跟着黄金价格走的代币），每个周期约 2000 根，跟简易MT5一样；读不到时改用 Kraken（只有 720 根）。不经过 MT5，电脑关机也能看。<br>
   PAXG 价格一般比券商的 XAUUSDs. 低 10 美元左右，平台框位置会整体偏低一点；周末黄金停盘，PAXG 照样有价格。<br>
-  折线和平台规则跟简易MT5一样（左边 15 根定顶底、合并小折、成熟度两条、框不超过 A 点），每 30 秒自动刷新。庄闲路单：每涨 15 美元记一个庄（红圈），每跌 15 记一个闲（蓝圈），零头不算，反向满 15 才换方向，显示从现在往前 7 天、一直往前滚动。仅供看图，不是交易建议。
+  折线和平台规则跟简易MT5一样（左边 15 根定顶底、合并小折、成熟度两条、框不超过 A 点），每 30 秒自动刷新。庄闲路单：黄金每涨 15 美元记一个庄（红圈），每跌 15 记一个闲（蓝圈），零头不算，反向满 15 才换方向，显示从现在往前 7 天、一直往前滚动。<br>
+  比特币：数据是 Coinbase 的 BTC/USD（读不到用 Kraken），路单每 300 美元一格（按价格比例跟黄金的 15 差不多），其他规则一样；比特币 24 小时都在交易。仅供看图，不是交易建议。
 </div>
 <script>
 {
 const $ = id => document.getElementById(id);
-const digits = 2;
+// 2026-11-22 用户：把比特币也做进网页。顶部切换，价格、路单、两张折线图一起换。
+const PRODS = {
+  gold: {name: '黄金', cb: 'PAXG-USD', kr: 'PAXGUSD', step: 15, digits: 2, unit: 'PAXG/USD'},
+  btc: {name: '比特币', cb: 'BTC-USD', kr: 'XBTUSD', step: 300, digits: 0, unit: 'BTC/USD'},
+};
+let prod = 'gold';
+try { const h = location.hash.slice(1), s = localStorage.getItem('prod'); if (PRODS[h]) prod = h; else if (PRODS[s]) prod = s; } catch (e) {}
+const PR = () => PRODS[prod];
+let digits = 2;
 const HIDE_PLAT_BOX = true;
 const ZL_N = 15, ZL_MERGE = 1 / 3;
 function zlLeg(b, N) {
@@ -189,17 +202,17 @@ function drawMap(id, bars, name) {
   ctx.fillStyle = '#ef9a9a'; ctx.fillText(f(price), R + 4, Y(price));
 }
 // ---------- 取数据 ----------
-async function kraken(min) {
-  const d = await (await fetch('https://api.kraken.com/0/public/OHLC?pair=PAXGUSD&interval=' + min)).json();
+async function kraken(pair, min) {
+  const d = await (await fetch('https://api.kraken.com/0/public/OHLC?pair=' + pair + '&interval=' + min)).json();
   if (d.error && d.error.length) throw new Error(d.error.join(','));
   const k = Object.keys(d.result).find(x => x !== 'last');
   return d.result[k].map(r => ({time: r[0], open: +r[1], high: +r[2], low: +r[3], close: +r[4]}));
 }
-async function coinbase(min, pages) {
+async function coinbase(pid, min, pages) {
   const sec = min * 60, out = new Map(); let end = Math.floor(Date.now() / 1000);
   for (let n = 0; n < pages; n++) {   // 每次 300 根，往前翻 pages 次
     const start = end - sec * 300;
-    const u = 'https://api.exchange.coinbase.com/products/PAXG-USD/candles?granularity=' + sec + '&start=' + new Date(start * 1000).toISOString() + '&end=' + new Date(end * 1000).toISOString();
+    const u = 'https://api.exchange.coinbase.com/products/' + pid + '/candles?granularity=' + sec + '&start=' + new Date(start * 1000).toISOString() + '&end=' + new Date(end * 1000).toISOString();
     const a = await (await fetch(u)).json();
     if (!Array.isArray(a)) throw new Error('coinbase');
     a.forEach(r => out.set(r[0], {time: r[0], low: r[1], high: r[2], open: r[3], close: r[4]}));
@@ -209,15 +222,16 @@ async function coinbase(min, pages) {
 }
 // 和简易MT5一样用约 2000 根：第一次（和每 10 分钟）从 Coinbase 读 7×300 根，之后每 30 秒只补最新 300 根；Coinbase 读不到就用 Kraken（只有 720 根）
 const C = {};
-async function get(min) {
-  const c = C[min] || (C[min] = {bars: [], t: 0, src: ''});
+async function get(p, min) {
+  const P = PRODS[p], key = p + min;
+  const c = C[key] || (C[key] = {bars: [], t: 0, src: ''});
   try {
     const full = !c.bars.length || c.src !== 'Coinbase' || Date.now() - c.t > 600000;
-    const nb = await coinbase(min, full ? 7 : 1);
+    const nb = await coinbase(P.cb, min, full ? 7 : 1);
     if (full) { c.bars = nb; c.t = Date.now(); }
     else { const m = new Map(c.bars.map(b => [b.time, b])); nb.forEach(b => m.set(b.time, b)); c.bars = [...m.values()].sort((x, y) => x.time - y.time).slice(-2100); }
     c.src = 'Coinbase';
-  } catch (e) { c.bars = await kraken(min); c.src = 'Kraken'; c.t = 0; }
+  } catch (e) { c.bars = await kraken(P.kr, min); c.src = 'Kraken'; c.t = 0; }
   return {bars: c.bars, src: c.src};
 }
 // ---------- 庄闲路单（2026-11-17 用户定）----------
@@ -225,7 +239,7 @@ async function get(min) {
 // 反弹不满 15 又继续跌，算同一段、从这段的起点接着累计。用 1 分钟数据。
 // 2026-11-17 14:14 用户改：不每天清空，显示「从现在往前 7 天」一直滚动（原来是从最近一次洛杉矶 15:00 开盘开始，sessionStart 留着没用）。
 const ROAD_DAYS = 7;
-const STEP = 15;
+let STEP = 15;   // 跟着品种换：黄金 15，比特币 300（见 PRODS）
 function laParts(d) {
   const o = {}; new Intl.DateTimeFormat('en-US', {timeZone: 'America/Los_Angeles', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'}).formatToParts(d).forEach(x => o[x.type] = x.value);
   return o;
@@ -240,11 +254,11 @@ function sessionStart() {
   if ((+p.hour) % 24 < 15) { const q = new Date(Date.UTC(y, m - 1, d) - 86400000); y = q.getUTCFullYear(); m = q.getUTCMonth() + 1; d = q.getUTCDate(); }
   return Math.floor(laToUtc(y, m, d, 15) / 1000);
 }
-async function cbRange(sec, from, to) {   // Coinbase 一段时间的 K 线，每次最多 300 根
+async function cbRange(pid, sec, from, to) {   // Coinbase 一段时间的 K 线，每次最多 300 根
   const out = new Map();
   for (let end = to; end > from; end -= sec * 300) {
     const start = Math.max(from, end - sec * 300);
-    const u = 'https://api.exchange.coinbase.com/products/PAXG-USD/candles?granularity=' + sec + '&start=' + new Date(start * 1000).toISOString() + '&end=' + new Date(end * 1000).toISOString();
+    const u = 'https://api.exchange.coinbase.com/products/' + pid + '/candles?granularity=' + sec + '&start=' + new Date(start * 1000).toISOString() + '&end=' + new Date(end * 1000).toISOString();
     let a = null;
     for (let k = 0; k < 3 && !Array.isArray(a); k++) { if (k) await new Promise(r => setTimeout(r, 1200)); try { a = await (await fetch(u)).json(); } catch (e) {} }
     if (!Array.isArray(a)) throw new Error('coinbase');
@@ -252,12 +266,14 @@ async function cbRange(sec, from, to) {   // Coinbase 一段时间的 K 线，�
   }
   return [...out.values()].sort((x, y) => x.time - y.time);
 }
-const RD = {start: 0, bars: []};
-async function loadRoad() {
+const RDS = {};   // 每个品种一份路单数据
+const rdOf = p => RDS[p] || (RDS[p] = {start: 0, bars: []});
+async function loadRoad(p) {
+  const RD = rdOf(p), pid = PRODS[p].cb;
   const now = Math.floor(Date.now() / 1000), st = now - ROAD_DAYS * 86400;
-  if (!RD.bars.length) { $('rinfo').textContent = '第一次要读 7 天的 1 分钟数据，大约 10 秒…'; RD.bars = await cbRange(60, st, now); }
+  if (!RD.bars.length) { if (p === prod) $('rinfo').textContent = '第一次要读 7 天的 1 分钟数据，大约 10 秒…'; RD.bars = await cbRange(pid, 60, st, now); }
   else {
-    const nb = await cbRange(60, Math.max(st, now - 60 * 300), now);
+    const nb = await cbRange(pid, 60, Math.max(st, now - 60 * 300), now);
     const m = new Map(RD.bars.map(b => [b.time, b])); nb.forEach(b => m.set(b.time, b));
     RD.bars = [...m.values()].filter(b => b.time >= st).sort((x, y) => x.time - y.time);
   }
@@ -292,6 +308,8 @@ function bigRoad(seq) {   // 百家乐「大路」：同样的往下排，满 6 
   return cells;
 }
 function drawRoad() {
+  const RD = rdOf(prod);
+  if (!RD.bars.length) { $('road').innerHTML = ''; $('rsub').textContent = '每 ' + STEP + ' 美元一格'; $('rinfo').textContent = '读取中…（第一次要读 7 天的 1 分钟数据，大约 10 秒）'; return; }
   const {seq, st} = roadSeq(RD.bars);
   const cells = bigRoad(seq), cs = 24, cols = Math.max(16, (cells.length ? Math.max(...cells.map(c => c.col)) : 0) + 4);
   let g = '';
@@ -300,31 +318,46 @@ function drawRoad() {
   for (const c of cells) g += `<circle cx="${c.col * cs + cs / 2}" cy="${c.row * cs + cs / 2}" r="${cs / 2 - 4}" fill="none" stroke="${c.r === '庄' ? '#ef5350' : '#42a5f5'}" stroke-width="2.6"/>`;
   const el = $('road'); el.innerHTML = `<svg width="${cols * cs + 1}" height="${6 * cs + 1}">${g}</svg>`; el.scrollLeft = el.scrollWidth;
   const z = seq.filter(x => x === '庄').length, x = seq.length - z;
-  const t0 = new Date((RD.bars.length ? RD.bars[0].time : RD.start) * 1000), f = v => v.toFixed(2);
-  $('rsub').textContent = '每 15 美元一格 · 最近 7 天（从 ' + (t0.getMonth() + 1) + '/' + t0.getDate() + ' ' + String(t0.getHours()).padStart(2, '0') + ':' + String(t0.getMinutes()).padStart(2, '0') + ' 起）';
+  const t0 = new Date((RD.bars.length ? RD.bars[0].time : RD.start) * 1000), f = v => v.toFixed(digits);
+  $('rsub').textContent = '每 ' + STEP + ' 美元一格 · 最近 7 天（从 ' + (t0.getMonth() + 1) + '/' + t0.getDate() + ' ' + String(t0.getHours()).padStart(2, '0') + ':' + String(t0.getMinutes()).padStart(2, '0') + ' 起）';
   let now = '';
   if (!st) now = '还没有数据';
-  else if (st.dir === 0) now = '还没走满 15：涨到 <b class="z">' + f(st.lo + STEP) + '</b> 记庄，跌到 <b class="x">' + f(st.hi - STEP) + '</b> 记闲';
+  else if (st.dir === 0) now = '还没走满 ' + STEP + '：涨到 <b class="z">' + f(st.lo + STEP) + '</b> 记庄，跌到 <b class="x">' + f(st.hi - STEP) + '</b> 记闲';
   else if (st.dir === 1) now = '上涨段（从 ' + f(st.legStart) + ' 起，最高 ' + f(st.ext) + '）：涨到 <b class="z">' + f(st.legStart + (st.cnt + 1) * STEP) + '</b> 再记一个庄；跌回 <b class="x">' + f(st.ext - STEP) + '</b> 记闲';
   else now = '下跌段（从 ' + f(st.legStart) + ' 起，最低 ' + f(st.ext) + '）：跌到 <b class="x">' + f(st.legStart - (st.cnt + 1) * STEP) + '</b> 再记一个闲；涨回 <b class="z">' + f(st.ext + STEP) + '</b> 记庄';
   $('rinfo').innerHTML = '<b class="z">庄 ' + z + '</b> · <b class="x">闲 ' + x + '</b> · 共 ' + seq.length + '<br>' + now;
 }
-const D = {m15: null, m5: null};
-let busy = false;
+const DS = {};   // 每个品种：{m15, m5, src, t}
+let busy = false, again = false;
 async function load() {
-  if (busy) return; busy = true;
+  if (busy) { again = true; return; }
+  busy = true; const p = prod;
   try {
-    const [a, b] = await Promise.all([get(15), get(5), loadRoad()]);
-    D.m15 = a.bars; D.m5 = b.bars;
-    const p = b.bars[b.bars.length - 1].close;
-    $('px').innerHTML = p.toFixed(2) + '<small>PAXG/USD</small>';
-    $('st').textContent = '来源 ' + b.src + ' · 更新于 ' + new Date().toLocaleTimeString('zh-CN', {hour12: false});
-    draw();
+    const [a, b] = await Promise.all([get(p, 15), get(p, 5), loadRoad(p)]);
+    DS[p] = {m15: a.bars, m5: b.bars, src: b.src, t: new Date()};
+    if (p === prod) draw();
   } catch (e) {
-    $('st').innerHTML = '<span class="err">读取失败，30 秒后自动重试（' + (e.message || e) + '）</span>';
-  } finally { busy = false; }
+    if (p === prod) $('st').innerHTML = '<span class="err">读取失败，30 秒后自动重试（' + (e.message || e) + '）</span>';
+  } finally { busy = false; if (again || p !== prod) { again = false; load(); } }
 }
-function draw() { drawRoad(); drawMap('c15', D.m15, '15分钟'); drawMap('c5', D.m5, '5分钟'); }
+function draw() {
+  const P = PR(), d = DS[prod];
+  digits = P.digits; STEP = P.step;
+  document.title = P.name + '平台位置'; $('ttl').textContent = P.name + '平台位置';
+  for (const k in PRODS) $('tb-' + k).className = k === prod ? 'on' : '';
+  if (d && d.m5 && d.m5.length) {
+    $('px').innerHTML = d.m5[d.m5.length - 1].close.toFixed(digits) + '<small>' + P.unit + '</small>';
+    $('st').textContent = '来源 ' + d.src + ' · 更新于 ' + d.t.toLocaleTimeString('zh-CN', {hour12: false});
+  } else { $('px').textContent = '—'; $('st').textContent = '读取中…'; }
+  drawRoad(); drawMap('c15', d && d.m15, '15分钟'); drawMap('c5', d && d.m5, '5分钟');
+}
+function pick(p) {
+  if (!PRODS[p] || p === prod) return;
+  prod = p; try { localStorage.setItem('prod', p); history.replaceState(null, '', '#' + p); } catch (e) {}
+  draw(); load();
+}
+for (const k in PRODS) $('tb-' + k).onclick = () => pick(k);
+draw();
 $('rf').onclick = load;
 window.addEventListener('resize', draw);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
