@@ -311,11 +311,28 @@ function drawRoad() {
   const RD = rdOf(prod);
   if (!RD.bars.length) { $('road').innerHTML = ''; $('rsub').textContent = '每 ' + STEP + ' 美元一格'; $('rinfo').textContent = '读取中…（第一次要读 7 天的 1 分钟数据，大约 10 秒）'; return; }
   const {seq, st} = roadSeq(RD.bars);
-  const cells = bigRoad(seq), cs = 24, cols = Math.max(16, (cells.length ? Math.max(...cells.map(c => c.col)) : 0) + 4);
+  // 2026-11-25 用户：显示「正在生成」的庄/闲。在下一个庄、下一个闲各自会落的格子画虚线圈，按走了几成填满扇形。
+  const price = RD.bars[RD.bars.length - 1].close, clamp = v => Math.max(0, Math.min(0.999, v));
+  let pz = 0, px = 0;   // 离下一个庄 / 下一个闲 走了几成（0~1）
+  if (st) {
+    if (st.dir === 0) { pz = (price - st.lo) / STEP; px = (st.hi - price) / STEP; }
+    else if (st.dir === 1) { pz = (price - (st.legStart + st.cnt * STEP)) / STEP; px = (st.ext - price) / STEP; }
+    else { px = ((st.legStart - st.cnt * STEP) - price) / STEP; pz = (price - st.ext) / STEP; }
+  }
+  pz = clamp(pz); px = clamp(px);
+  const gz = bigRoad(seq.concat(['庄'])).pop(), gx = bigRoad(seq.concat(['闲'])).pop();
+  const cells = bigRoad(seq), cs = 24, cols = Math.max(16, Math.max(gz.col, gx.col, ...(cells.length ? cells.map(c => c.col) : [0])) + 4);
   let g = '';
   for (let c = 0; c <= cols; c++) g += `<line x1="${c * cs}" y1="0" x2="${c * cs}" y2="${6 * cs}" stroke="#262b35"/>`;
   for (let r = 0; r <= 6; r++) g += `<line x1="0" y1="${r * cs}" x2="${cols * cs}" y2="${r * cs}" stroke="#262b35"/>`;
   for (const c of cells) g += `<circle cx="${c.col * cs + cs / 2}" cy="${c.row * cs + cs / 2}" r="${cs / 2 - 4}" fill="none" stroke="${c.r === '庄' ? '#ef5350' : '#42a5f5'}" stroke-width="2.6"/>`;
+  const ghost = (c, frac, col) => {   // 虚线圈＋按比例填满的扇形（从 12 点钟方向顺时针）
+    const cx = c.col * cs + cs / 2, cy = c.row * cs + cs / 2, r = cs / 2 - 4, a = frac * 2 * Math.PI;
+    let s = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="1.6" stroke-dasharray="3 2.5" opacity="0.9"/>`;
+    if (frac > 0.01) s += `<path d="M${cx},${cy} L${cx},${cy - r} A${r},${r} 0 ${a > Math.PI ? 1 : 0} 1 ${cx + r * Math.sin(a)},${cy - r * Math.cos(a)} Z" fill="${col}" opacity="0.45"/>`;
+    return s;
+  };
+  g += ghost(gz, pz, '#ef5350') + ghost(gx, px, '#42a5f5');
   const el = $('road'); el.innerHTML = `<svg width="${cols * cs + 1}" height="${6 * cs + 1}">${g}</svg>`; el.scrollLeft = el.scrollWidth;
   const z = seq.filter(x => x === '庄').length, x = seq.length - z;
   const t0 = new Date((RD.bars.length ? RD.bars[0].time : RD.start) * 1000), f = v => v.toFixed(digits);
@@ -325,7 +342,9 @@ function drawRoad() {
   else if (st.dir === 0) now = '还没走满 ' + STEP + '：涨到 <b class="z">' + f(st.lo + STEP) + '</b> 记庄，跌到 <b class="x">' + f(st.hi - STEP) + '</b> 记闲';
   else if (st.dir === 1) now = '上涨段（从 ' + f(st.legStart) + ' 起，最高 ' + f(st.ext) + '）：涨到 <b class="z">' + f(st.legStart + (st.cnt + 1) * STEP) + '</b> 再记一个庄；跌回 <b class="x">' + f(st.ext - STEP) + '</b> 记闲';
   else now = '下跌段（从 ' + f(st.legStart) + ' 起，最低 ' + f(st.ext) + '）：跌到 <b class="x">' + f(st.legStart - (st.cnt + 1) * STEP) + '</b> 再记一个闲；涨回 <b class="z">' + f(st.ext + STEP) + '</b> 记庄';
-  $('rinfo').innerHTML = '<b class="z">庄 ' + z + '</b> · <b class="x">闲 ' + x + '</b> · 共 ' + seq.length + '<br>' + now;
+  const pc = v => Math.round(v * 100) + '%';
+  const ing = '正在生成：<b class="z">庄 ' + pc(pz) + '</b>（还差 ' + f(STEP * (1 - pz)) + '） · <b class="x">闲 ' + pc(px) + '</b>（还差 ' + f(STEP * (1 - px)) + '） · 现价 ' + f(price);
+  $('rinfo').innerHTML = '<b class="z">庄 ' + z + '</b> · <b class="x">闲 ' + x + '</b> · 共 ' + seq.length + '<br>' + ing + '<br>' + now;
 }
 const DS = {};   // 每个品种：{m15, m5, src, t}
 let busy = false, again = false;
