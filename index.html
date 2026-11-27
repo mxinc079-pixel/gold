@@ -43,11 +43,11 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
   <div class="mbox"><div class="mh">庄闲路单 <span id="rsub">读取中</span></div>
     <div class="road" id="road"></div>
     <div class="rinfo" id="rinfo">读取中…</div></div>
+  <div class="mbox"><div class="mh">平台位置 <span>30分钟</span></div><canvas id="c30"></canvas></div>
   <div class="mbox"><div class="mh">平台位置 <span>15分钟</span></div><canvas id="c15"></canvas></div>
-  <div class="mbox"><div class="mh">平台位置 <span>5分钟</span></div><canvas id="c5"></canvas></div>
 </main>
 <div class="note">
-  数据：Coinbase 交易所的 PAXG/USD（跟着黄金价格走的代币），每个周期约 2000 根，跟简易MT5一样；读不到时改用 Kraken（只有 720 根）。不经过 MT5，电脑关机也能看。<br>
+  数据：Coinbase 交易所的 PAXG/USD（跟着黄金价格走的代币），每个周期约 2000 根，跟简易MT5一样（Coinbase 没有 30 分钟线，用两根 15 分钟合成一根）；读不到时改用 Kraken（只有 720 根）。不经过 MT5，电脑关机也能看。<br>
   PAXG 价格一般比券商的 XAUUSDs. 低 10 美元左右，平台框位置会整体偏低一点；周末黄金停盘，PAXG 照样有价格。<br>
   折线和平台规则跟简易MT5一样（左边 15 根定顶底、合并小折、成熟度两条、框不超过 A 点），每 30 秒自动刷新。庄闲路单：黄金每涨 15 美元记一个庄（红圈），每跌 15 记一个闲（蓝圈），零头不算，反向满 15 才换方向，显示从现在往前 7 天、一直往前滚动。<br>
   比特币：数据是 Coinbase 的 BTC/USD（读不到用 Kraken），路单每 300 美元一格（按价格比例跟黄金的 15 差不多），其他规则一样；比特币 24 小时都在交易。仅供看图，不是交易建议。
@@ -222,16 +222,27 @@ async function coinbase(pid, min, pages) {
 }
 // 和简易MT5一样用约 2000 根：第一次（和每 10 分钟）从 Coinbase 读 7×300 根，之后每 30 秒只补最新 300 根；Coinbase 读不到就用 Kraken（只有 720 根）
 const C = {};
+// 2026-11-26 用户：两张图改成 30 分钟和 15 分钟。Coinbase 没有 30 分钟线，读 15 分钟（翻倍页数）再两根合一根。
+function merge(raw, sec) {
+  const out = [];
+  for (const b of raw) {
+    const t = Math.floor(b.time / sec) * sec, l = out[out.length - 1];
+    if (l && l.time === t) { l.high = Math.max(l.high, b.high); l.low = Math.min(l.low, b.low); l.close = b.close; }
+    else out.push({time: t, open: b.open, high: b.high, low: b.low, close: b.close});
+  }
+  return out;
+}
 async function get(p, min) {
-  const P = PRODS[p], key = p + min;
-  const c = C[key] || (C[key] = {bars: [], t: 0, src: ''});
+  const P = PRODS[p], key = p + min, agg = min === 30 ? 2 : 1, base = min / agg;
+  const c = C[key] || (C[key] = {raw: [], bars: [], t: 0, src: ''});
   try {
-    const full = !c.bars.length || c.src !== 'Coinbase' || Date.now() - c.t > 600000;
-    const nb = await coinbase(P.cb, min, full ? 7 : 1);
-    if (full) { c.bars = nb; c.t = Date.now(); }
-    else { const m = new Map(c.bars.map(b => [b.time, b])); nb.forEach(b => m.set(b.time, b)); c.bars = [...m.values()].sort((x, y) => x.time - y.time).slice(-2100); }
+    const full = !c.raw.length || c.src !== 'Coinbase' || Date.now() - c.t > 600000;
+    const nb = await coinbase(P.cb, base, full ? 7 * agg : 1);
+    if (full) { c.raw = nb; c.t = Date.now(); }
+    else { const m = new Map(c.raw.map(b => [b.time, b])); nb.forEach(b => m.set(b.time, b)); c.raw = [...m.values()].sort((x, y) => x.time - y.time).slice(-2100 * agg); }
+    c.bars = agg > 1 ? merge(c.raw, min * 60) : c.raw;
     c.src = 'Coinbase';
-  } catch (e) { c.bars = await kraken(P.kr, min); c.src = 'Kraken'; c.t = 0; }
+  } catch (e) { c.raw = []; c.bars = await kraken(P.kr, min); c.src = 'Kraken'; c.t = 0; }
   return {bars: c.bars, src: c.src};
 }
 // ---------- 庄闲路单（2026-11-17 用户定）----------
@@ -346,14 +357,14 @@ function drawRoad() {
   const ing = '正在生成：<b class="z">庄 ' + pc(pz) + '</b>（还差 ' + f(STEP * (1 - pz)) + '） · <b class="x">闲 ' + pc(px) + '</b>（还差 ' + f(STEP * (1 - px)) + '） · 现价 ' + f(price);
   $('rinfo').innerHTML = '<b class="z">庄 ' + z + '</b> · <b class="x">闲 ' + x + '</b> · 共 ' + seq.length + '<br>' + ing + '<br>' + now;
 }
-const DS = {};   // 每个品种：{m15, m5, src, t}
+const DS = {};   // 每个品种：{m30, m15, src, t}
 let busy = false, again = false;
 async function load() {
   if (busy) { again = true; return; }
   busy = true; const p = prod;
   try {
-    const [a, b] = await Promise.all([get(p, 15), get(p, 5), loadRoad(p)]);
-    DS[p] = {m15: a.bars, m5: b.bars, src: b.src, t: new Date()};
+    const [a, b] = await Promise.all([get(p, 30), get(p, 15), loadRoad(p)]);
+    DS[p] = {m30: a.bars, m15: b.bars, src: b.src, t: new Date()};
     if (p === prod) draw();
   } catch (e) {
     if (p === prod) $('st').innerHTML = '<span class="err">读取失败，30 秒后自动重试（' + (e.message || e) + '）</span>';
@@ -364,11 +375,11 @@ function draw() {
   digits = P.digits; STEP = P.step;
   document.title = P.name + '平台位置'; $('ttl').textContent = P.name + '平台位置';
   for (const k in PRODS) $('tb-' + k).className = k === prod ? 'on' : '';
-  if (d && d.m5 && d.m5.length) {
-    $('px').innerHTML = d.m5[d.m5.length - 1].close.toFixed(digits) + '<small>' + P.unit + '</small>';
+  if (d && d.m15 && d.m15.length) {
+    $('px').innerHTML = d.m15[d.m15.length - 1].close.toFixed(digits) + '<small>' + P.unit + '</small>';
     $('st').textContent = '来源 ' + d.src + ' · 更新于 ' + d.t.toLocaleTimeString('zh-CN', {hour12: false});
   } else { $('px').textContent = '—'; $('st').textContent = '读取中…'; }
-  drawRoad(); drawMap('c15', d && d.m15, '15分钟'); drawMap('c5', d && d.m5, '5分钟');
+  drawRoad(); drawMap('c30', d && d.m30, '30分钟'); drawMap('c15', d && d.m15, '15分钟');
 }
 function pick(p) {
   if (!PRODS[p] || p === prod) return;
