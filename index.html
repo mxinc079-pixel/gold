@@ -46,12 +46,6 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
   <div class="mbox"><div class="mh">平台位置 <span>30分钟</span></div><canvas id="c30"></canvas></div>
   <div class="mbox"><div class="mh">平台位置 <span>15分钟</span></div><canvas id="c15"></canvas></div>
 </main>
-<div class="note">
-  数据：Coinbase 交易所的 PAXG/USD（跟着黄金价格走的代币），每个周期约 2000 根，跟简易MT5一样（Coinbase 没有 30 分钟线，用两根 15 分钟合成一根）；读不到时改用 Kraken（只有 720 根）。不经过 MT5，电脑关机也能看。<br>
-  PAXG 价格一般比券商的 XAUUSDs. 低 10 美元左右，平台框位置会整体偏低一点；周末黄金停盘，PAXG 照样有价格。<br>
-  折线和平台规则跟简易MT5一样（左边 15 根定顶底、合并小折、成熟度两条、框不超过 A 点），每 30 秒自动刷新。庄闲路单：黄金每涨 15 美元记一个庄（红圈），每跌 15 记一个闲（蓝圈），零头不算，反向满 15 才换方向，显示从现在往前 7 天、一直往前滚动。<br>
-  比特币：数据是 Coinbase 的 BTC/USD（读不到用 Kraken），路单每 300 美元一格（按价格比例跟黄金的 15 差不多），其他规则一样；比特币 24 小时都在交易。仅供看图，不是交易建议。
-</div>
 <script>
 {
 const $ = id => document.getElementById(id);
