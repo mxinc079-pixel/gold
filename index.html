@@ -53,7 +53,7 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
   <div class="mbox"><div class="mh">30m</div><canvas id="c30"></canvas></div>
   <div class="mbox"><div class="mh">15m</div><canvas id="c15"></canvas></div>
   <div class="mbox"><div class="mh">5m</div><canvas id="c5"></canvas></div>
-  <div class="mbox" id="b20"><div class="mh">20s</div><canvas id="c20"></canvas></div>
+  <div class="mbox" id="b20"><div class="mh">10s</div><canvas id="c20"></canvas></div>
 </main>
 <script>
 {
@@ -255,7 +255,8 @@ async function get(p, min) {
 // 交易所没有 20 秒 K 线，用 Coinbase 的逐笔成交自己拼：每 20 秒一根，没有成交的 20 秒就跳过。
 // 第一次往回读最多 12 小时或 2100 根；之后每 30 秒只补最新成交。Coinbase 读不到改用 Kraken 的逐笔成交。
 const T20 = {trades: [], maxId: 0, src: '', t: 0};
-const S20 = 20, N20 = 2100, H20 = 12 * 3600;
+// 2026-11-26 23:02 用户：20 秒改成 10 秒看看（变量名没改，S20 就是每根的秒数）
+const S20 = 10, N20 = 2100, H20 = 12 * 3600;
 async function cbTrades(pid, afterId) {
   const d = await (await fetch('https://api.exchange.coinbase.com/products/' + pid + '/trades?limit=1000' + (afterId ? '&after=' + afterId : ''))).json();
   if (!Array.isArray(d)) throw new Error('coinbase trades');
