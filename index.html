@@ -22,12 +22,19 @@ main{display:flex;flex-direction:column;gap:12px;padding:8px 12px 20px;max-width
 .road{overflow-x:auto;padding:10px 12px 4px}
 .road svg{display:block}
 .rinfo{padding:4px 14px 12px;font-size:13px;color:#aab1bc;line-height:1.7}
-.rinfo b.z{color:#ef5350}.rinfo b.x{color:#42a5f5}
+.rinfo b.z,.rinfo span.z{color:#ef5350}.rinfo b.x,.rinfo span.x{color:#42a5f5}
 .note{color:#7d8592;font-size:12px;padding:0 14px 16px;max-width:900px;margin:0 auto;line-height:1.6}
 .err{color:#ff8a80}
 button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6px;padding:8px 14px;font-size:15px;margin-top:8px}
 .tabs{display:flex;gap:8px;margin-bottom:8px}
 .tabs button{margin:0;padding:6px 16px;border-radius:16px}
+.tug{margin:4px 0 10px}
+.tug .hd{font-size:20px;font-weight:700;margin-bottom:6px}
+.tug .row{display:flex;align-items:center;gap:8px;font-size:13px}
+.tug .bar{position:relative;flex:1;height:14px;border-radius:7px;background:linear-gradient(90deg,rgba(66,165,245,.25),rgba(239,83,80,.25))}
+.tug .mid{position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:#5a6270}
+.tug .fill{position:absolute;top:0;bottom:0;border-radius:7px}
+.tug .pin{position:absolute;top:-5px;width:4px;height:24px;margin-left:-2px;border-radius:2px;background:#fff;box-shadow:0 0 4px #000}
 .tabs button.on{background:#f5c451;color:#111;border-color:#f5c451;font-weight:700}
 </style>
 </head>
@@ -351,6 +358,14 @@ function drawRoad() {
     else { px = ((st.legStart - st.cnt * STEP) - price) / STEP; pz = (price - st.ext) / STEP; }
   }
   pz = clamp(pz); px = clamp(px);
+  // 2026-11-26 用户：直观显示现价在开庄还是开闲。两个触发价之间画一根拔河条，现价离哪边近就是在开哪边。
+  let zAt = 0, xAt = 0;
+  if (st) {
+    if (st.dir === 0) { zAt = st.lo + STEP; xAt = st.hi - STEP; }
+    else if (st.dir === 1) { zAt = st.legStart + (st.cnt + 1) * STEP; xAt = st.ext - STEP; }
+    else { xAt = st.legStart - (st.cnt + 1) * STEP; zAt = st.ext + STEP; }
+  }
+  const pos = zAt > xAt ? Math.max(0, Math.min(1, (price - xAt) / (zAt - xAt))) : 0.5, leadZ = pos >= 0.5;
   const gz = bigRoad(seq.concat(['庄'])).pop(), gx = bigRoad(seq.concat(['闲'])).pop();
   const cells = bigRoad(seq), cs = 24, cols = Math.max(16, Math.max(gz.col, gx.col, ...(cells.length ? cells.map(c => c.col) : [0])) + 4);
   let g = '';
@@ -363,7 +378,7 @@ function drawRoad() {
     if (frac > 0.01) s += `<path d="M${cx},${cy} L${cx},${cy - r} A${r},${r} 0 ${a > Math.PI ? 1 : 0} 1 ${cx + r * Math.sin(a)},${cy - r * Math.cos(a)} Z" fill="${col}" opacity="0.45"/>`;
     return s;
   };
-  g += ghost(gz, pz, '#ef5350') + ghost(gx, px, '#42a5f5');
+  g += `<g opacity="${leadZ ? 1 : 0.35}">${ghost(gz, pz, '#ef5350')}</g><g opacity="${leadZ ? 0.35 : 1}">${ghost(gx, px, '#42a5f5')}</g>`;
   const el = $('road'); el.innerHTML = `<svg width="${cols * cs + 1}" height="${6 * cs + 1}">${g}</svg>`; el.scrollLeft = el.scrollWidth;
   const z = seq.filter(x => x === '庄').length, x = seq.length - z;
   const t0 = new Date((RD.bars.length ? RD.bars[0].time : RD.start) * 1000), f = v => v.toFixed(digits);
@@ -374,8 +389,14 @@ function drawRoad() {
   else if (st.dir === 1) now = '上涨段（从 ' + f(st.legStart) + ' 起，最高 ' + f(st.ext) + '）：涨到 <b class="z">' + f(st.legStart + (st.cnt + 1) * STEP) + '</b> 再记一个庄；跌回 <b class="x">' + f(st.ext - STEP) + '</b> 记闲';
   else now = '下跌段（从 ' + f(st.legStart) + ' 起，最低 ' + f(st.ext) + '）：跌到 <b class="x">' + f(st.legStart - (st.cnt + 1) * STEP) + '</b> 再记一个闲；涨回 <b class="z">' + f(st.ext + STEP) + '</b> 记庄';
   const pc = v => Math.round(v * 100) + '%';
-  const ing = '正在生成：<b class="z">庄 ' + pc(pz) + '</b>（还差 ' + f(STEP * (1 - pz)) + '） · <b class="x">闲 ' + pc(px) + '</b>（还差 ' + f(STEP * (1 - px)) + '） · 现价 ' + f(price);
-  $('rinfo').innerHTML = '<b class="z">庄 ' + z + '</b> · <b class="x">闲 ' + x + '</b> · 共 ' + seq.length + '<br>' + ing + '<br>' + now;
+  const ing = '正在生成：<b class="z">庄 ' + pc(pz) + '</b>（还差 ' + f(zAt - price) + '） · <b class="x">闲 ' + pc(px) + '</b>（还差 ' + f(price - xAt) + '） · 现价 ' + f(price);
+  const lo = Math.min(pos, 0.5) * 100, hi = Math.max(pos, 0.5) * 100;
+  const tug = '<div class="tug"><div class="hd">' + (leadZ ? '<span class="z">正在开庄</span>' : '<span class="x">正在开闲</span>')
+    + ' <small style="font-size:14px;font-weight:400;color:#9aa3ae">还差 ' + f(Math.abs((leadZ ? zAt : xAt) - price)) + '</small></div>'
+    + '<div class="row"><b class="x">闲 ' + f(xAt) + '</b><div class="bar"><div class="mid"></div>'
+    + '<div class="fill" style="left:' + lo + '%;width:' + (hi - lo) + '%;background:' + (leadZ ? '#ef5350' : '#42a5f5') + '"></div>'
+    + '<div class="pin" style="left:' + (pos * 100) + '%"></div></div><b class="z">' + f(zAt) + ' 庄</b></div></div>';
+  $('rinfo').innerHTML = tug + '<b class="z">庄 ' + z + '</b> · <b class="x">闲 ' + x + '</b> · 共 ' + seq.length + '<br>' + ing + '<br>' + now;
 }
 const DS = {};   // 每个品种：{m30, m15, m5, src, t}（2026-11-26 用户：5 分钟图加回去，放在最下面）
 let busy = false, again = false;
