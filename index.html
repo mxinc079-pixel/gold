@@ -53,6 +53,7 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
   <div class="mbox"><div class="mh">平台位置 <span>30分钟</span></div><canvas id="c30"></canvas></div>
   <div class="mbox"><div class="mh">平台位置 <span>15分钟</span></div><canvas id="c15"></canvas></div>
   <div class="mbox"><div class="mh">平台位置 <span>5分钟</span></div><canvas id="c5"></canvas></div>
+  <div class="mbox" id="b20"><div class="mh">平台位置 <span>20秒（只有黄金）</span></div><canvas id="c20"></canvas></div>
 </main>
 <script>
 {
@@ -250,6 +251,63 @@ async function get(p, min) {
   } catch (e) { if (!P.kr) throw e; c.raw = []; c.bars = await kraken(P.kr, min); c.src = 'Kraken'; c.t = 0; }
   return {bars: c.bars, src: c.src};
 }
+// ---------- 20 秒线（2026-11-26 用户：做 20 秒平台，只要黄金）----------
+// 交易所没有 20 秒 K 线，用 Coinbase 的逐笔成交自己拼：每 20 秒一根，没有成交的 20 秒就跳过。
+// 第一次往回读最多 12 小时或 2100 根；之后每 30 秒只补最新成交。Coinbase 读不到改用 Kraken 的逐笔成交。
+const T20 = {trades: [], maxId: 0, src: '', t: 0};
+const S20 = 20, N20 = 2100, H20 = 12 * 3600;
+async function cbTrades(pid, afterId) {
+  const d = await (await fetch('https://api.exchange.coinbase.com/products/' + pid + '/trades?limit=1000' + (afterId ? '&after=' + afterId : ''))).json();
+  if (!Array.isArray(d)) throw new Error('coinbase trades');
+  return d.map(r => ({id: +r.trade_id, t: Date.parse(r.time) / 1000, p: +r.price}));   // 新的在前
+}
+async function krTrades(from) {
+  const out = []; let since = String(Math.floor(from * 1e9));
+  for (let n = 0; n < 40; n++) {
+    const d = await (await fetch('https://api.kraken.com/0/public/Trades?pair=PAXGUSD&count=1000&since=' + since)).json();
+    if (d.error && d.error.length) throw new Error(d.error.join(','));
+    const k = Object.keys(d.result).find(x => x !== 'last'), a = d.result[k];
+    a.forEach(r => out.push({id: 0, t: +r[2], p: +r[0]}));
+    if (a.length < 1000 || d.result.last === since) break;
+    since = d.result.last; await sleep(1100);   // Kraken 限速
+  }
+  return out;
+}
+function bars20(tr) {
+  const out = [];
+  for (const x of tr) {
+    const t = Math.floor(x.t / S20) * S20, l = out[out.length - 1];
+    if (l && l.time === t) { l.high = Math.max(l.high, x.p); l.low = Math.min(l.low, x.p); l.close = x.p; }
+    else out.push({time: t, open: x.p, high: x.p, low: x.p, close: x.p});
+  }
+  return out.slice(-N20);
+}
+async function get20() {
+  const now = Date.now() / 1000;
+  try {
+    if (!T20.trades.length || T20.src !== 'Coinbase' || Date.now() - T20.t > 1800000) {
+      let all = [], cur = 0;
+      for (let n = 0; n < 60; n++) {   // 往回翻，直到 12 小时或够 2100 根
+        const a = await cbTrades('PAXG-USD', cur);
+        if (!a.length) break;
+        all = all.concat(a); cur = a[a.length - 1].id;
+        if (a[a.length - 1].t < now - H20 || new Set(all.map(x => Math.floor(x.t / S20))).size >= N20) break;
+        await sleep(120);
+      }
+      T20.trades = all.reverse(); T20.t = Date.now();
+    } else {
+      const a = (await cbTrades('PAXG-USD', 0)).filter(x => x.id > T20.maxId).reverse();
+      T20.trades = T20.trades.concat(a);
+    }
+    T20.src = 'Coinbase';
+  } catch (e) {
+    T20.trades = await krTrades(now - H20); T20.src = 'Kraken'; T20.t = 0;
+  }
+  T20.maxId = T20.trades.reduce((m, x) => Math.max(m, x.id), 0);
+  const b = bars20(T20.trades);
+  if (b.length) { const t0 = b[0].time; T20.trades = T20.trades.filter(x => x.t >= t0); }
+  return b;
+}
 // ---------- 庄闲路单（2026-11-17 用户定）----------
 // 价格每涨 15 记一个「庄」，每跌 15 记一个「闲」，零头不算；从最高/最低点反向满 15 才算换方向，
 // 反弹不满 15 又继续跌，算同一段、从这段的起点接着累计。用 1 分钟数据。
@@ -404,8 +462,8 @@ async function load() {
   if (busy) { again = true; return; }
   busy = true; const p = prod;
   try {
-    const [a, b, c] = await Promise.all([get(p, 30), get(p, 15), get(p, 5), loadRoad(p)]);
-    DS[p] = {m30: a.bars, m15: b.bars, m5: c.bars, src: b.src, t: new Date()};
+    const [a, b, c, , s20] = await Promise.all([get(p, 30), get(p, 15), get(p, 5), loadRoad(p), p === 'gold' ? get20().catch(() => null) : null]);
+    DS[p] = {m30: a.bars, m15: b.bars, m5: c.bars, s20: s20 || (DS[p] && DS[p].s20), src: b.src, t: new Date()};
     if (p === prod) draw();
   } catch (e) {
     if (p === prod) $('st').innerHTML = '<span class="err">读取失败，30 秒后自动重试（' + (e.message || e) + '）</span>';
@@ -421,6 +479,7 @@ function draw() {
     $('st').textContent = '来源 ' + d.src + ' · 更新于 ' + d.t.toLocaleTimeString('zh-CN', {hour12: false});
   } else { $('px').textContent = '—'; $('st').textContent = '读取中…'; }
   drawRoad(); drawMap('c30', d && d.m30, '30分钟'); drawMap('c15', d && d.m15, '15分钟'); drawMap('c5', d && d.m5, '5分钟');
+  $('b20').style.display = prod === 'gold' ? '' : 'none'; if (prod === 'gold') drawMap('c20', d && d.s20, '20秒');
 }
 function pick(p) {
   if (!PRODS[p] || p === prod) return;
