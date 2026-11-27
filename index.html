@@ -33,7 +33,7 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
 </head>
 <body>
 <header>
-  <div class="tabs"><button id="tb-gold">黄金</button><button id="tb-btc">比特币</button></div>
+  <div class="tabs"><button id="tb-gold">黄金</button><button id="tb-xag">白银</button><button id="tb-btc">比特币</button></div>
   <h1 id="ttl">黄金平台位置</h1>
   <div class="sub" id="st">读取中…</div>
   <div class="price" id="px">—</div>
@@ -53,6 +53,8 @@ const $ = id => document.getElementById(id);
 // 2026-11-22 用户：把比特币也做进网页。顶部切换，价格、路单、两张折线图一起换。
 const PRODS = {
   gold: {name: '黄金', cb: 'PAXG-USD', kr: 'PAXGUSD', step: 15, digits: 2, unit: 'PAXG/USD'},
+  // 2026-11-26 用户：加白银，庄闲每 0.4 一格。Coinbase/Kraken 没有白银，用 OKX 的白银永续合约 XAG-USDT-SWAP（24 小时交易）。
+  xag: {name: '白银', okx: 'XAG-USDT-SWAP', step: 0.4, digits: 2, unit: 'XAG/USDT'},
   btc: {name: '比特币', cb: 'BTC-USD', kr: 'XBTUSD', step: 300, digits: 0, unit: 'BTC/USD'},
 };
 let prod = 'gold';
@@ -228,16 +230,17 @@ function merge(raw, sec) {
   return out;
 }
 async function get(p, min) {
-  const P = PRODS[p], key = p + min, agg = min === 30 ? 2 : 1, base = min / agg;
+  const P = PRODS[p], key = p + min, agg = (min === 30 && !P.okx) ? 2 : 1, base = min / agg;   // OKX 自带 30 分钟线
   const c = C[key] || (C[key] = {raw: [], bars: [], t: 0, src: ''});
   try {
-    const full = !c.raw.length || c.src !== 'Coinbase' || Date.now() - c.t > 600000;
-    const nb = await coinbase(P.cb, base, full ? 7 * agg : 1);
+    const full = !c.raw.length || c.src === 'Kraken' || Date.now() - c.t > 600000;
+    const nb = P.okx ? await okxRange(P.okx, base * 60, Math.floor(Date.now() / 1000) - base * 60 * 300 * (full ? 7 * agg : 1), Math.floor(Date.now() / 1000))
+                     : await coinbase(P.cb, base, full ? 7 * agg : 1);
     if (full) { c.raw = nb; c.t = Date.now(); }
     else { const m = new Map(c.raw.map(b => [b.time, b])); nb.forEach(b => m.set(b.time, b)); c.raw = [...m.values()].sort((x, y) => x.time - y.time).slice(-2100 * agg); }
     c.bars = agg > 1 ? merge(c.raw, min * 60) : c.raw;
-    c.src = 'Coinbase';
-  } catch (e) { c.raw = []; c.bars = await kraken(P.kr, min); c.src = 'Kraken'; c.t = 0; }
+    c.src = P.okx ? 'OKX' : 'Coinbase';
+  } catch (e) { if (!P.kr) throw e; c.raw = []; c.bars = await kraken(P.kr, min); c.src = 'Kraken'; c.t = 0; }
   return {bars: c.bars, src: c.src};
 }
 // ---------- 庄闲路单（2026-11-17 用户定）----------
@@ -260,6 +263,28 @@ function sessionStart() {
   if ((+p.hour) % 24 < 15) { const q = new Date(Date.UTC(y, m - 1, d) - 86400000); y = q.getUTCFullYear(); m = q.getUTCMonth() + 1; d = q.getUTCDate(); }
   return Math.floor(laToUtc(y, m, d, 15) / 1000);
 }
+const OKXBAR = {60: '1m', 300: '5m', 900: '15m', 1800: '30m'};
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function okxRange(inst, sec, from, to) {   // OKX 一段时间的 K 线，从新往旧翻，每次最多 100 根
+  const out = new Map(); let after = '';
+  for (let n = 0; n < 200; n++) {
+    let a = null;
+    for (let k = 0; k < 6 && !a; k++) {
+      try {
+        const d = await (await fetch('https://www.okx.com/api/v5/market/history-candles?instId=' + inst + '&bar=' + OKXBAR[sec] + '&limit=100' + (after ? '&after=' + after : ''))).json();
+        if (d.code === '0' && Array.isArray(d.data)) a = d.data; else await sleep(800 * (k + 1));   // 被限速就等一下再试
+      } catch (e) { await sleep(800 * (k + 1)); }
+    }
+    if (!a) throw new Error('OKX 读取失败');
+    if (!a.length) break;
+    for (const r of a) { const t = Math.floor(+r[0] / 1000); if (t >= from) out.set(t, {time: t, open: +r[1], high: +r[2], low: +r[3], close: +r[4]}); }
+    const oldest = Math.floor(+a[a.length - 1][0] / 1000);
+    if (oldest <= from) break;
+    after = a[a.length - 1][0];
+    await sleep(110);   // OKX 限速：每 2 秒 20 次
+  }
+  return [...out.values()].sort((x, y) => x.time - y.time);
+}
 async function cbRange(pid, sec, from, to) {   // Coinbase 一段时间的 K 线，每次最多 300 根
   const out = new Map();
   for (let end = to; end > from; end -= sec * 300) {
@@ -275,11 +300,11 @@ async function cbRange(pid, sec, from, to) {   // Coinbase 一段时间的 K 线
 const RDS = {};   // 每个品种一份路单数据
 const rdOf = p => RDS[p] || (RDS[p] = {start: 0, bars: []});
 async function loadRoad(p) {
-  const RD = rdOf(p), pid = PRODS[p].cb;
+  const RD = rdOf(p), P = PRODS[p], cbRange1 = (pid, sec, a, b) => P.okx ? okxRange(P.okx, sec, a, b) : cbRange(pid, sec, a, b), pid = P.cb;
   const now = Math.floor(Date.now() / 1000), st = now - ROAD_DAYS * 86400;
-  if (!RD.bars.length) { if (p === prod) $('rinfo').textContent = '第一次要读 7 天的 1 分钟数据，大约 10 秒…'; RD.bars = await cbRange(pid, 60, st, now); }
+  if (!RD.bars.length) { if (p === prod) $('rinfo').textContent = '第一次要读 7 天的 1 分钟数据，大约 ' + (P.okx ? '20–30' : '10') + ' 秒…'; RD.bars = await cbRange1(pid, 60, st, now); }
   else {
-    const nb = await cbRange(pid, 60, Math.max(st, now - 60 * 300), now);
+    const nb = await cbRange1(pid, 60, Math.max(st, now - 60 * 300), now);
     const m = new Map(RD.bars.map(b => [b.time, b])); nb.forEach(b => m.set(b.time, b));
     RD.bars = [...m.values()].filter(b => b.time >= st).sort((x, y) => x.time - y.time);
   }
@@ -315,7 +340,7 @@ function bigRoad(seq) {   // 百家乐「大路」：同样的往下排，满 6 
 }
 function drawRoad() {
   const RD = rdOf(prod);
-  if (!RD.bars.length) { $('road').innerHTML = ''; $('rsub').textContent = '每 ' + STEP + ' 美元一格'; $('rinfo').textContent = '读取中…（第一次要读 7 天的 1 分钟数据，大约 10 秒）'; return; }
+  if (!RD.bars.length) { $('road').innerHTML = ''; $('rsub').textContent = '每 ' + STEP + ' 美元一格'; $('rinfo').textContent = '读取中…（第一次要读 7 天的 1 分钟数据，大约 ' + (PR().okx ? '20–30' : '10') + ' 秒）'; return; }
   const {seq, st} = roadSeq(RD.bars);
   // 2026-11-25 用户：显示「正在生成」的庄/闲。在下一个庄、下一个闲各自会落的格子画虚线圈，按走了几成填满扇形。
   const price = RD.bars[RD.bars.length - 1].close, clamp = v => Math.max(0, Math.min(0.999, v));
