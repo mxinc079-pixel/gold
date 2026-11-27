@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>黄金平台位置</title>
+<title>XAU</title>
 <style>
 /* 和简易MT5中间栏同样的深色风格；只有两张图：15 分钟、5 分钟 */
 :root{color-scheme:dark}
@@ -40,20 +40,20 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
 </head>
 <body>
 <header>
-  <div class="tabs"><button id="tb-gold">黄金</button><button id="tb-xag">白银</button><button id="tb-btc">比特币</button></div>
-  <h1 id="ttl">黄金平台位置</h1>
-  <div class="sub" id="st">读取中…</div>
+  <div class="tabs"><button id="tb-gold">XAU</button><button id="tb-xag">XAG</button><button id="tb-btc">BTC</button></div>
+  <h1 id="ttl" style="display:none"></h1>
+  <div class="sub" id="st">…</div>
   <div class="price" id="px">—</div>
-  <button id="rf">立即刷新</button>
+  <button id="rf">↻</button>
 </header>
 <main>
-  <div class="mbox"><div class="mh">庄闲路单 <span id="rsub">读取中</span></div>
+  <div class="mbox"><div class="mh"><span id="rsub">…</span></div>
     <div class="road" id="road"></div>
-    <div class="rinfo" id="rinfo">读取中…</div></div>
-  <div class="mbox"><div class="mh">平台位置 <span>30分钟</span></div><canvas id="c30"></canvas></div>
-  <div class="mbox"><div class="mh">平台位置 <span>15分钟</span></div><canvas id="c15"></canvas></div>
-  <div class="mbox"><div class="mh">平台位置 <span>5分钟</span></div><canvas id="c5"></canvas></div>
-  <div class="mbox" id="b20"><div class="mh">平台位置 <span>20秒（只有黄金）</span></div><canvas id="c20"></canvas></div>
+    <div class="rinfo" id="rinfo">…</div></div>
+  <div class="mbox"><div class="mh">30m</div><canvas id="c30"></canvas></div>
+  <div class="mbox"><div class="mh">15m</div><canvas id="c15"></canvas></div>
+  <div class="mbox"><div class="mh">5m</div><canvas id="c5"></canvas></div>
+  <div class="mbox" id="b20"><div class="mh">20s</div><canvas id="c20"></canvas></div>
 </main>
 <script>
 {
@@ -183,9 +183,9 @@ function cvMsg(ctx, W, H, s) { ctx.fillStyle = '#7d8592'; ctx.textAlign = 'cente
 // 和简易MT5 drawPMapOne（只画大周期自己）一样的画法
 function drawMap(id, bars, name) {
   const {ctx, W, H} = cvPrep(id);
-  if (!bars || bars.length < 20) return cvMsg(ctx, W, H, '读取中…');
+  if (!bars || bars.length < 20) return cvMsg(ctx, W, H, '…');
   const r5 = lastPlat(bars);
-  if (!r5 || !r5.g) return cvMsg(ctx, W, H, name + '暂时没有平台');
+  if (!r5 || !r5.g) return cvMsg(ctx, W, H, '—');
   const g5 = r5.g, price = bars[bars.length - 1].close, tNow = bars[bars.length - 1].time;
   let lo = Math.min(g5.bot, price), hi = Math.max(g5.top, price);
   for (const p of r5.P) if (bars[p.i].time >= g5.t0) { lo = Math.min(lo, p.v); hi = Math.max(hi, p.v); }
@@ -340,7 +340,7 @@ async function okxRange(inst, sec, from, to) {   // OKX 一段时间的 K 线，
         if (d.code === '0' && Array.isArray(d.data)) a = d.data; else await sleep(800 * (k + 1));   // 被限速就等一下再试
       } catch (e) { await sleep(800 * (k + 1)); }
     }
-    if (!a) throw new Error('OKX 读取失败');
+    if (!a) throw new Error('OKX');
     if (!a.length) break;
     for (const r of a) { const t = Math.floor(+r[0] / 1000); if (t >= from) out.set(t, {time: t, open: +r[1], high: +r[2], low: +r[3], close: +r[4]}); }
     const oldest = Math.floor(+a[a.length - 1][0] / 1000);
@@ -367,7 +367,7 @@ const rdOf = p => RDS[p] || (RDS[p] = {start: 0, bars: []});
 async function loadRoad(p) {
   const RD = rdOf(p), P = PRODS[p], cbRange1 = (pid, sec, a, b) => P.okx ? okxRange(P.okx, sec, a, b) : cbRange(pid, sec, a, b), pid = P.cb;
   const now = Math.floor(Date.now() / 1000), st = now - ROAD_DAYS * 86400;
-  if (!RD.bars.length) { if (p === prod) $('rinfo').textContent = '第一次要读 7 天的 1 分钟数据，大约 ' + (P.okx ? '20–30' : '10') + ' 秒…'; RD.bars = await cbRange1(pid, 60, st, now); }
+  if (!RD.bars.length) { if (p === prod) $('rinfo').textContent = '…'; RD.bars = await cbRange1(pid, 60, st, now); }
   else {
     const nb = await cbRange1(pid, 60, Math.max(st, now - 60 * 300), now);
     const m = new Map(RD.bars.map(b => [b.time, b])); nb.forEach(b => m.set(b.time, b));
@@ -405,7 +405,7 @@ function bigRoad(seq) {   // 百家乐「大路」：同样的往下排，满 6 
 }
 function drawRoad() {
   const RD = rdOf(prod);
-  if (!RD.bars.length) { $('road').innerHTML = ''; $('rsub').textContent = '每 ' + STEP + ' 美元一格'; $('rinfo').textContent = '读取中…（第一次要读 7 天的 1 分钟数据，大约 ' + (PR().okx ? '20–30' : '10') + ' 秒）'; return; }
+  if (!RD.bars.length) { $('road').innerHTML = ''; $('rsub').textContent = String(STEP); $('rinfo').textContent = '…'; return; }
   const {seq, st} = roadSeq(RD.bars);
   // 2026-11-25 用户：显示「正在生成」的庄/闲。在下一个庄、下一个闲各自会落的格子画虚线圈，按走了几成填满扇形。
   const price = RD.bars[RD.bars.length - 1].close, clamp = v => Math.max(0, Math.min(0.999, v));
@@ -440,21 +440,21 @@ function drawRoad() {
   const el = $('road'); el.innerHTML = `<svg width="${cols * cs + 1}" height="${6 * cs + 1}">${g}</svg>`; el.scrollLeft = el.scrollWidth;
   const z = seq.filter(x => x === '庄').length, x = seq.length - z;
   const t0 = new Date((RD.bars.length ? RD.bars[0].time : RD.start) * 1000), f = v => v.toFixed(digits);
-  $('rsub').textContent = '每 ' + STEP + ' 美元一格 · 最近 7 天（从 ' + (t0.getMonth() + 1) + '/' + t0.getDate() + ' ' + String(t0.getHours()).padStart(2, '0') + ':' + String(t0.getMinutes()).padStart(2, '0') + ' 起）';
+  $('rsub').textContent = STEP + ' · ' + (t0.getMonth() + 1) + '/' + t0.getDate() + ' ' + String(t0.getHours()).padStart(2, '0') + ':' + String(t0.getMinutes()).padStart(2, '0');
   let now = '';
-  if (!st) now = '还没有数据';
-  else if (st.dir === 0) now = '还没走满 ' + STEP + '：涨到 <b class="z">' + f(st.lo + STEP) + '</b> 记庄，跌到 <b class="x">' + f(st.hi - STEP) + '</b> 记闲';
-  else if (st.dir === 1) now = '上涨段（从 ' + f(st.legStart) + ' 起，最高 ' + f(st.ext) + '）：涨到 <b class="z">' + f(st.legStart + (st.cnt + 1) * STEP) + '</b> 再记一个庄；跌回 <b class="x">' + f(st.ext - STEP) + '</b> 记闲';
-  else now = '下跌段（从 ' + f(st.legStart) + ' 起，最低 ' + f(st.ext) + '）：跌到 <b class="x">' + f(st.legStart - (st.cnt + 1) * STEP) + '</b> 再记一个闲；涨回 <b class="z">' + f(st.ext + STEP) + '</b> 记庄';
+  // 2026-11-26 用户：页面不要中文，只要数字和图。段落写成「起点 ↗/↘ 极值」
+  if (!st) now = '—';
+  else if (st.dir === 0) now = f(st.lo) + ' ↔ ' + f(st.hi);
+  else if (st.dir === 1) now = f(st.legStart) + ' <b class="z">↗</b> ' + f(st.ext);
+  else now = f(st.legStart) + ' <b class="x">↘</b> ' + f(st.ext);
   const pc = v => Math.round(v * 100) + '%';
-  const ing = '正在生成：<b class="z">庄 ' + pc(pz) + '</b>（还差 ' + f(zAt - price) + '） · <b class="x">闲 ' + pc(px) + '</b>（还差 ' + f(price - xAt) + '） · 现价 ' + f(price);
+  const ing = '<b class="z">' + pc(pz) + '</b> · <b class="x">' + pc(px) + '</b> · ' + f(price);
   const lo = Math.min(pos, 0.5) * 100, hi = Math.max(pos, 0.5) * 100;
-  const tug = '<div class="tug"><div class="hd">' + (leadZ ? '<span class="z">正在开庄</span>' : '<span class="x">正在开闲</span>')
-    + ' <small style="font-size:14px;font-weight:400;color:#9aa3ae">还差 ' + f(Math.abs((leadZ ? zAt : xAt) - price)) + '</small></div>'
-    + '<div class="row"><b class="x">闲 ' + f(xAt) + '</b><div class="bar"><div class="mid"></div>'
+  const tug = '<div class="tug"><div class="hd">' + (leadZ ? '<span class="z">▲ ' : '<span class="x">▼ ') + f(Math.abs((leadZ ? zAt : xAt) - price)) + '</span></div>'
+    + '<div class="row"><b class="x">' + f(xAt) + '</b><div class="bar"><div class="mid"></div>'
     + '<div class="fill" style="left:' + lo + '%;width:' + (hi - lo) + '%;background:' + (leadZ ? '#ef5350' : '#42a5f5') + '"></div>'
-    + '<div class="pin" style="left:' + (pos * 100) + '%"></div></div><b class="z">' + f(zAt) + ' 庄</b></div></div>';
-  $('rinfo').innerHTML = tug + '<b class="z">庄 ' + z + '</b> · <b class="x">闲 ' + x + '</b> · 共 ' + seq.length + '<br>' + ing + '<br>' + now;
+    + '<div class="pin" style="left:' + (pos * 100) + '%"></div></div><b class="z">' + f(zAt) + '</b></div></div>';
+  $('rinfo').innerHTML = tug + '<b class="z">' + z + '</b> · <b class="x">' + x + '</b> · ' + seq.length + '<br>' + ing + '<br>' + now;
 }
 const DS = {};   // 每个品种：{m30, m15, m5, src, t}（2026-11-26 用户：5 分钟图加回去，放在最下面）
 let busy = false, again = false;
@@ -466,18 +466,18 @@ async function load() {
     DS[p] = {m30: a.bars, m15: b.bars, m5: c.bars, s20: s20 || (DS[p] && DS[p].s20), src: b.src, t: new Date()};
     if (p === prod) draw();
   } catch (e) {
-    if (p === prod) $('st').innerHTML = '<span class="err">读取失败，30 秒后自动重试（' + (e.message || e) + '）</span>';
+    if (p === prod) $('st').innerHTML = '<span class="err">× ' + (e.message || e) + '</span>';
   } finally { busy = false; if (again || p !== prod) { again = false; load(); } }
 }
 function draw() {
   const P = PR(), d = DS[prod];
   digits = P.digits; STEP = P.step;
-  document.title = P.name + '平台位置'; $('ttl').textContent = P.name + '平台位置';
+  document.title = P.unit;
   for (const k in PRODS) $('tb-' + k).className = k === prod ? 'on' : '';
   if (d && d.m15 && d.m15.length) {
     $('px').innerHTML = d.m15[d.m15.length - 1].close.toFixed(digits) + '<small>' + P.unit + '</small>';
-    $('st').textContent = '来源 ' + d.src + ' · 更新于 ' + d.t.toLocaleTimeString('zh-CN', {hour12: false});
-  } else { $('px').textContent = '—'; $('st').textContent = '读取中…'; }
+    $('st').textContent = d.src + ' · ' + d.t.toLocaleTimeString('zh-CN', {hour12: false});
+  } else { $('px').textContent = '—'; $('st').textContent = '…'; }
   drawRoad(); drawMap('c30', d && d.m30, '30分钟'); drawMap('c15', d && d.m15, '15分钟'); drawMap('c5', d && d.m5, '5分钟');
   $('b20').style.display = prod === 'gold' ? '' : 'none'; if (prod === 'gold') drawMap('c20', d && d.s20, '20秒');
 }
