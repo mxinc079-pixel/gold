@@ -45,6 +45,7 @@ button{background:#1b1f27;border:1px solid #2a303b;color:#d8dce2;border-radius:6
     <div class="rinfo" id="rinfo">读取中…</div></div>
   <div class="mbox"><div class="mh">平台位置 <span>30分钟</span></div><canvas id="c30"></canvas></div>
   <div class="mbox"><div class="mh">平台位置 <span>15分钟</span></div><canvas id="c15"></canvas></div>
+  <div class="mbox"><div class="mh">平台位置 <span>5分钟</span></div><canvas id="c5"></canvas></div>
 </main>
 <script>
 {
@@ -351,14 +352,14 @@ function drawRoad() {
   const ing = '正在生成：<b class="z">庄 ' + pc(pz) + '</b>（还差 ' + f(STEP * (1 - pz)) + '） · <b class="x">闲 ' + pc(px) + '</b>（还差 ' + f(STEP * (1 - px)) + '） · 现价 ' + f(price);
   $('rinfo').innerHTML = '<b class="z">庄 ' + z + '</b> · <b class="x">闲 ' + x + '</b> · 共 ' + seq.length + '<br>' + ing + '<br>' + now;
 }
-const DS = {};   // 每个品种：{m30, m15, src, t}
+const DS = {};   // 每个品种：{m30, m15, m5, src, t}（2026-11-26 用户：5 分钟图加回去，放在最下面）
 let busy = false, again = false;
 async function load() {
   if (busy) { again = true; return; }
   busy = true; const p = prod;
   try {
-    const [a, b] = await Promise.all([get(p, 30), get(p, 15), loadRoad(p)]);
-    DS[p] = {m30: a.bars, m15: b.bars, src: b.src, t: new Date()};
+    const [a, b, c] = await Promise.all([get(p, 30), get(p, 15), get(p, 5), loadRoad(p)]);
+    DS[p] = {m30: a.bars, m15: b.bars, m5: c.bars, src: b.src, t: new Date()};
     if (p === prod) draw();
   } catch (e) {
     if (p === prod) $('st').innerHTML = '<span class="err">读取失败，30 秒后自动重试（' + (e.message || e) + '）</span>';
@@ -373,7 +374,7 @@ function draw() {
     $('px').innerHTML = d.m15[d.m15.length - 1].close.toFixed(digits) + '<small>' + P.unit + '</small>';
     $('st').textContent = '来源 ' + d.src + ' · 更新于 ' + d.t.toLocaleTimeString('zh-CN', {hour12: false});
   } else { $('px').textContent = '—'; $('st').textContent = '读取中…'; }
-  drawRoad(); drawMap('c30', d && d.m30, '30分钟'); drawMap('c15', d && d.m15, '15分钟');
+  drawRoad(); drawMap('c30', d && d.m30, '30分钟'); drawMap('c15', d && d.m15, '15分钟'); drawMap('c5', d && d.m5, '5分钟');
 }
 function pick(p) {
   if (!PRODS[p] || p === prod) return;
