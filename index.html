@@ -53,8 +53,8 @@ const $ = id => document.getElementById(id);
 // 2026-11-22 用户：把比特币也做进网页。顶部切换，价格、路单、两张折线图一起换。
 const PRODS = {
   gold: {name: '黄金', cb: 'PAXG-USD', kr: 'PAXGUSD', step: 15, digits: 2, unit: 'PAXG/USD'},
-  // 2026-11-26 用户：加白银，庄闲每 0.4 一格。Coinbase/Kraken 没有白银，用 OKX 的白银永续合约 XAG-USDT-SWAP（24 小时交易）。
-  xag: {name: '白银', okx: 'XAG-USDT-SWAP', step: 0.4, digits: 2, unit: 'XAG/USDT'},
+  // 2026-11-26 用户：加白银，庄闲每 0.4 一格（同日改 0.35，按波动跟黄金 15 对齐）。Coinbase/Kraken 没有白银，用 OKX 的白银永续合约 XAG-USDT-SWAP（24 小时交易）。
+  xag: {name: '白银', okx: 'XAG-USDT-SWAP', step: 0.35, digits: 2, unit: 'XAG/USDT'},
   btc: {name: '比特币', cb: 'BTC-USD', kr: 'XBTUSD', step: 300, digits: 0, unit: 'BTC/USD'},
 };
 let prod = 'gold';
