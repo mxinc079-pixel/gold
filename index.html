@@ -432,7 +432,7 @@ $('rf').onclick = load;
 window.addEventListener('resize', draw);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 load();
-setInterval(load, 30000);
+setInterval(load, 10000);   // 2026-11-27 用户：30 秒改成 10 秒刷新一次
 }
 </script>
 </body>
